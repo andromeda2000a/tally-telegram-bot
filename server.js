@@ -7,7 +7,6 @@ app.use(express.json());
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Проверяем, что переменные добавлены в Render
 if (!BOT_TOKEN || !CHAT_ID) {
   console.error("ERROR: TELEGRAM_BOT_TOKEN или TELEGRAM_CHAT_ID не настроены");
 }
@@ -20,25 +19,40 @@ app.get("/", (req, res) => {
 // Webhook от Tally
 app.post("/tally", async (req, res) => {
   try {
-    console.log("New Tally submission:");
-    console.log(JSON.stringify(req.body, null, 2));
+    const submission = req.body;
+    const data = submission.data;
 
-    const data = req.body;
+    console.log("New Tally submission received");
 
-    // Собираем информацию из ответа Tally
+    // Начинаем формировать красивое сообщение
     let message = "🆕 НОВАЯ АНКЕТА\n\n";
 
-    // Временный вариант:
-    // отправляем весь полученный JSON,
-    // чтобы сначала посмотреть точную структуру Tally.
-    message += "📋 Данные анкеты:\n\n";
-    message += JSON.stringify(data, null, 2);
+    // Получаем вопросы и ответы
+    if (data && Array.isArray(data.fields)) {
+      for (const field of data.fields) {
+        const label = field.label || "Без названия";
+        const value = field.value ?? "—";
 
-    // Telegram ограничивает сообщение 4096 символами
-    if (message.length > 4000) {
-      message = message.substring(0, 4000) + "\n\n…";
+        message += `👤 ${label}\n`;
+        message += `${value}\n\n`;
+      }
     }
 
+    // Время заполнения
+    if (data && data.createdAt) {
+      const date = new Date(data.createdAt);
+
+      message += `🕐 Заполнено: ${date.toLocaleString("ru-RU", {
+        timeZone: "Europe/Warsaw"
+      })}\n\n`;
+    }
+
+    // Ссылка на просмотр заявки в Tally
+    if (data && data.submissionPreviewUrl) {
+      message += `🔗 Открыть заявку:\n${data.submissionPreviewUrl}`;
+    }
+
+    // Отправляем сообщение в Telegram
     const telegramUrl =
       `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
 
@@ -49,7 +63,8 @@ app.post("/tally", async (req, res) => {
       },
       body: JSON.stringify({
         chat_id: CHAT_ID,
-        text: message
+        text: message,
+        disable_web_page_preview: true
       })
     });
 
@@ -57,6 +72,7 @@ app.post("/tally", async (req, res) => {
 
     if (!response.ok || !result.ok) {
       console.error("Telegram error:", result);
+
       return res.status(500).json({
         success: false,
         error: "Telegram error"
@@ -65,7 +81,6 @@ app.post("/tally", async (req, res) => {
 
     console.log("Telegram message sent successfully");
 
-    // Сообщаем Tally, что webhook успешно обработан
     res.status(200).json({
       success: true
     });
